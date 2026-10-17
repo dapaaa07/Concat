@@ -710,4 +710,20 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&scratch);
     }
+
+    #[test]
+    fn test_fetch_live_animation_catalog() {
+        let catalog = fetch_animation_catalog(None).expect("fetch catalog");
+        assert!(!catalog.animations.is_empty());
+        assert_eq!(catalog.version, 1);
+        let first = &catalog.animations[0];
+        assert!(!first.id.is_empty());
+        assert!(!first.url.is_empty());
+
+        let scratch = std::env::temp_dir().join("concat-remote-anim-test");
+        let _ = std::fs::remove_dir_all(&scratch);
+        let template = fetch_animation_template(&scratch, &first.url).expect("fetch template");
+        assert_eq!(template.id, first.id);
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
 }
