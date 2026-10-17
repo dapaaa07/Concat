@@ -117,6 +117,65 @@ pub fn fetch_animation_template(
     Ok(template)
 }
 
+/// The default GitHub CDN repository URL for community animation templates.
+pub const DEFAULT_ANIMATION_CATALOG_URL: &str =
+    "https://raw.githubusercontent.com/dapaaa07/concat-animations/main/index.json";
+
+/// One remote animation entry listed in the catalog index.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteAnimationEntry {
+    /// Unique identifier for this animation.
+    pub id: String,
+    /// Display name shown in UI panels.
+    pub name: String,
+    /// Whether this animation is for In, Out, or Combo.
+    pub kind: concat_project::AnimationKind,
+    /// Supported clip targets.
+    #[serde(default)]
+    pub targets: Vec<concat_project::AnimationTarget>,
+    /// Recommended default duration in seconds.
+    #[serde(default = "default_remote_duration")]
+    pub default_duration: f64,
+    /// URL to download the full template JSON file.
+    pub url: String,
+}
+
+fn default_remote_duration() -> f64 {
+    0.5
+}
+
+/// The remote catalog index document.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteAnimationCatalog {
+    /// Schema format version.
+    pub version: u32,
+    /// ISO date or timestamp of last catalog update.
+    #[serde(default)]
+    pub updated_at: String,
+    /// List of available animation templates.
+    pub animations: Vec<RemoteAnimationEntry>,
+}
+
+/// Fetches the animation catalog index from a remote URL.
+pub fn fetch_animation_catalog(url: Option<&str>) -> Result<RemoteAnimationCatalog, String> {
+    let target_url = url.unwrap_or(DEFAULT_ANIMATION_CATALOG_URL);
+    let response = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .get(target_url)
+        .call()
+        .map_err(|e| format!("failed to fetch animation catalog from {target_url}: {e}"))?;
+
+    let json_text = response
+        .into_string()
+        .map_err(|e| format!("failed to read catalog response: {e}"))?;
+
+    serde_json::from_str(&json_text)
+        .map_err(|e| format!("failed to parse remote animation catalog: {e}"))
+}
+
 /// Packs the given document into a new template bundle.
 ///
 /// `project_path` is where the document's media paths currently resolve; it
