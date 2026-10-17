@@ -612,7 +612,7 @@ impl Crop {
 /// carry them and the document that stores them do not care which side of
 /// the clip a value ends up on, and only the thing that finally reads them
 /// does.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum KeyProperty {
     /// `Clip::scale`.

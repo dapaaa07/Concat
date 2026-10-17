@@ -21,6 +21,7 @@
 //! document model needs serde, and concat-core's zero-dependency rule is worth
 //! more than the adjacency.
 
+pub mod animation;
 pub mod commands;
 pub mod doc;
 pub mod editor;
@@ -28,6 +29,9 @@ pub mod model;
 pub mod placement;
 pub mod speed;
 
+pub use animation::{
+    AnimKey, AnimValue, AnimationCatalog, AnimationKind, AnimationTarget, AnimationTemplate,
+};
 pub use commands::{Command, CommandError, Outcome, consolidation_clips, why_not_merge};
 pub use doc::{DOCUMENT_VERSION, DocumentSettings, document_version, from_document, to_document};
 pub use editor::{Editor, RetiredFields};

@@ -81,6 +81,42 @@ pub fn templates_dir(config: &Path) -> PathBuf {
     config.join("templates")
 }
 
+/// Where downloadable animation templates live under the config directory.
+pub fn animations_dir(config: &Path) -> PathBuf {
+    config.join("animations")
+}
+
+/// Downloads a remote JSON animation template and saves it to the local animations directory.
+pub fn fetch_animation_template(
+    config: &Path,
+    url: &str,
+) -> Result<concat_project::AnimationTemplate, String> {
+    let response = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .get(url)
+        .call()
+        .map_err(|e| format!("failed to fetch animation template: {e}"))?;
+
+    let json_text = response
+        .into_string()
+        .map_err(|e| format!("failed to read response: {e}"))?;
+
+    let template = concat_project::AnimationTemplate::from_json(&json_text)
+        .map_err(|e| format!("invalid animation JSON: {e}"))?;
+
+    let target_dir = animations_dir(config);
+    if let Err(e) = std::fs::create_dir_all(&target_dir) {
+        return Err(format!("failed to create animations directory: {e}"));
+    }
+
+    let file_path = target_dir.join(format!("{}.json", template.id));
+    std::fs::write(&file_path, &json_text)
+        .map_err(|e| format!("failed to write template to disk: {e}"))?;
+
+    Ok(template)
+}
+
 /// Packs the given document into a new template bundle.
 ///
 /// `project_path` is where the document's media paths currently resolve; it
