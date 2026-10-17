@@ -11,7 +11,7 @@ import { FontPicker } from "font-picker.slint";
 import { NumberField } from "../primitives/number-field.slint";
 import { Button } from "../primitives/modal.slint";
 import {
-    ColourField, HelpButton, InspectorFmt, Param, ParamFormat, SwitchRow,
+    AnimationSection, ColourField, HelpButton, InspectorFmt, Param, ParamFormat, SwitchRow,
 } from "controls.slint";
 import {
     ClipField, ClipTextField, SelectedClipData, TextAlignment,
@@ -46,6 +46,8 @@ export component TextPanel inherits VerticalLayout {
     callback import-font();
     /// Keep this title's look for new titles and captions.
     callback set-default();
+    callback apply-animation(in-index: int, out-index: int, in-duration: float, out-duration: float);
+    callback clear-animation();
 
     /// Several titles selected together: every knob writes to all of them
     /// and the words, each title's own, are not offered.
@@ -683,6 +685,16 @@ export component TextPanel inherits VerticalLayout {
             unit-scale: 100;
             changed(v) => { root.set(ClipField.offset-y, v); root.commit(); }
         }
+        }
+    }
+
+    AnimationSection {
+        selected: root.selected;
+        apply(in-idx, out-idx, in-dur, out-dur) => {
+            root.apply-animation(in-idx, out-idx, in-dur, out-dur);
+        }
+        clear => {
+            root.clear-animation();
         }
     }
 }

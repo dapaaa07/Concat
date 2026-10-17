@@ -15,6 +15,7 @@ import { Button } from "../primitives/modal.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import {
+    AnimationSection,
     Check,
     ColourField,
     HelpButton,
@@ -952,6 +953,8 @@ export component VideoPanel inherits VerticalLayout {
     /// What the automatic cutout keeps: 0 auto, 1 person, 2 object.
     callback cutout-subject(index: int);
     callback cutout-clear();
+    callback apply-animation(in-index: int, out-index: int, in-duration: float, out-duration: float);
+    callback clear-animation();
 
     /// A shape is a figure, not footage: there is no background to take
     /// away and nothing to crop off its edges, so those sections stay out
@@ -1180,6 +1183,16 @@ export component VideoPanel inherits VerticalLayout {
                 checked: root.selected.flip-v;
                 toggled(on) => { root.set(ClipField.flip-v, on ? 1 : 0); root.commit(); }
             }
+        }
+    }
+
+    AnimationSection {
+        selected: root.selected;
+        apply(in-idx, out-idx, in-dur, out-dur) => {
+            root.apply-animation(in-idx, out-idx, in-dur, out-dur);
+        }
+        clear => {
+            root.clear-animation();
         }
     }
 

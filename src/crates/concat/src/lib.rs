@@ -1131,6 +1131,14 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_clip_commit(on_lanes!(|state| {
         state.clip_commit();
     }));
+    editor.on_clip_animation_apply(on_window!(
+        |state, in_index: i32, out_index: i32, in_duration: f32, out_duration: f32| {
+            state.apply_clip_animation(in_index, out_index, in_duration, out_duration);
+        }
+    ));
+    editor.on_clip_animation_clear(on_window!(|state| {
+        state.clear_clip_animation();
+    }));
 
     // ── the chains ──
     editor.on_chain_add(on_window!(|state, audio: bool, id: SharedString| {

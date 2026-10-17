@@ -280,6 +280,9 @@ export global Editor {
     /// The transition riding into the selected clip; see VideoPanel.
     callback transition-remove();
     callback transition-duration-set(seconds: float);
+    /// The animation preset on the selected clip.
+    callback clip-animation-apply(in-index: int, out-index: int, in-duration: float, out-duration: float);
+    callback clip-animation-clear();
 
     // ── the timeline ──
     in-out property <[TimelineTabData]> timeline-tabs;

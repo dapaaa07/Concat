@@ -7,7 +7,9 @@ import { Fmt } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { NumberField } from "../primitives/number-field.slint";
 import { ColorPicker } from "../primitives/color-picker.slint";
-import { ClipField, ClipKeyData, Keyframes } from "../timeline/model.slint";
+import { Row, Section, SectionBody, SectionHeader } from "../primitives/panel.slint";
+import { Select } from "../primitives/select.slint";
+import { ClipField, ClipKeyData, Keyframes, SelectedClipData } from "../timeline/model.slint";
 
 // The clip inspector's controls: a horizontal fader, the Param row that
 // repeats down every tab, a switch, a help disclosure, a note, and a search
@@ -963,6 +965,166 @@ export component ColourField inherits HorizontalLayout {
                         changed(next) => { root.changed(next); }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Animation presets for entrance (In) and exit (Out).
+export component AnimationSection inherits Section {
+    in property <SelectedClipData> selected;
+
+    callback apply(in-index: int, out-index: int, in-dur: float, out-dur: float);
+    callback clear();
+
+    property <int> anim-in: root.selected.animation-in;
+    property <int> anim-out: root.selected.animation-out;
+    property <float> in-duration: root.selected.animation-in-duration > 0 ? root.selected.animation-in-duration : 0.5;
+    property <float> out-duration: root.selected.animation-out-duration > 0 ? root.selected.animation-out-duration : 0.5;
+
+    property <[string]> in-options: [
+        I18n.t("animation.none"),
+        I18n.t("animation.fadeIn"),
+        I18n.t("animation.zoomIn"),
+        I18n.t("animation.zoomInBounce"),
+        I18n.t("animation.zoomInSoft"),
+        I18n.t("animation.zoomInImpact"),
+        I18n.t("animation.slideInLeft"),
+        I18n.t("animation.slideInRight"),
+        I18n.t("animation.slideInUp"),
+        I18n.t("animation.slideInDown"),
+        I18n.t("animation.dropBounce"),
+        I18n.t("animation.popUpSpring"),
+        I18n.t("animation.spinInCw"),
+        I18n.t("animation.spinInCcw"),
+        I18n.t("animation.vortexIn"),
+        I18n.t("animation.diagonalInTopLeft"),
+        I18n.t("animation.diagonalInBottomRight"),
+        I18n.t("animation.cinemaDriftIn"),
+        I18n.t("animation.gentleRise"),
+        I18n.t("animation.wobbleIn"),
+        I18n.t("animation.flipIn")
+    ];
+
+    property <[string]> out-options: [
+        I18n.t("animation.none"),
+        I18n.t("animation.fadeOut"),
+        I18n.t("animation.zoomOutShrink"),
+        I18n.t("animation.zoomOutFlyThrough"),
+        I18n.t("animation.slideOutLeft"),
+        I18n.t("animation.slideOutRight"),
+        I18n.t("animation.slideOutUp"),
+        I18n.t("animation.slideOutDown"),
+        I18n.t("animation.dropOut"),
+        I18n.t("animation.popShrinkOut"),
+        I18n.t("animation.spinOutCw"),
+        I18n.t("animation.spinOutCcw"),
+        I18n.t("animation.vortexOut"),
+        I18n.t("animation.diagonalOutBottomLeft"),
+        I18n.t("animation.diagonalOutTopRight"),
+        I18n.t("animation.cinemaDriftOut"),
+        I18n.t("animation.flipOut")
+    ];
+
+    function seed() {
+        root.anim-in = root.selected.animation-in;
+        root.anim-out = root.selected.animation-out;
+        root.in-duration = root.selected.animation-in-duration > 0 ? root.selected.animation-in-duration : 0.5;
+        root.out-duration = root.selected.animation-out-duration > 0 ? root.selected.animation-out-duration : 0.5;
+    }
+
+    init => { root.seed(); }
+    changed selected => { root.seed(); }
+
+    function notify-change() {
+        if (root.anim-in <= 0 && root.anim-out <= 0) {
+            root.clear();
+        } else {
+            root.apply(root.anim-in, root.anim-out, root.in-duration, root.out-duration);
+        }
+    }
+
+    function reset-animation() {
+        root.anim-in = 0;
+        root.anim-out = 0;
+        root.clear();
+    }
+
+    header := SectionHeader {
+        title: I18n.t("clipInspector.animation");
+        collapsible: true;
+        summary: (root.anim-in > 0 && root.anim-in < root.in-options.length ? root.in-options[root.anim-in] : I18n.t("common.none"))
+            + " · "
+            + (root.anim-out > 0 && root.anim-out < root.out-options.length ? root.out-options[root.anim-out] : I18n.t("common.none"));
+        ResetButton {
+            dirty: root.anim-in > 0 || root.anim-out > 0;
+            reset => { root.reset-animation(); }
+        }
+    }
+
+    if header.open: SectionBody {
+        Row {
+            label: I18n.t("animation.in");
+            Select {
+                options: root.in-options;
+                current: root.anim-in;
+                changed(idx) => {
+                    root.anim-in = idx;
+                    root.notify-change();
+                }
+            }
+        }
+
+        if root.anim-in > 0: Param {
+            label: I18n.t("animation.inDuration");
+            value: root.in-duration;
+            minimum: 0.1;
+            maximum: Math.max(0.2, Math.min(3.0, root.selected.duration * 0.48));
+            step: 0.05;
+            default-value: 0.5;
+            fmt: ParamFormat.seconds2;
+            unit: "s";
+            changed(v) => {
+                root.in-duration = v;
+                root.notify-change();
+            }
+        }
+
+        HorizontalLayout {
+            padding-left: Theme.pad;
+            padding-right: Theme.pad;
+            padding-top: 4px;
+            padding-bottom: 4px;
+            Rectangle {
+                height: 1px;
+                background: Theme.line;
+            }
+        }
+
+        Row {
+            label: I18n.t("animation.out");
+            Select {
+                options: root.out-options;
+                current: root.anim-out;
+                changed(idx) => {
+                    root.anim-out = idx;
+                    root.notify-change();
+                }
+            }
+        }
+
+        if root.anim-out > 0: Param {
+            label: I18n.t("animation.outDuration");
+            value: root.out-duration;
+            minimum: 0.1;
+            maximum: Math.max(0.2, Math.min(3.0, root.selected.duration * 0.48));
+            step: 0.05;
+            default-value: 0.5;
+            fmt: ParamFormat.seconds2;
+            unit: "s";
+            changed(v) => {
+                root.out-duration = v;
+                root.notify-change();
             }
         }
     }

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
 import { I18n } from "../i18n.slint";
+import { Editor } from "../editor.slint";
 import { Theme, SegmentedControl } from "../primitives/primitives.slint";
 import { Select } from "../primitives/select.slint";
 import { Pane, PaneBody, PaneScroll } from "pane.slint";
@@ -634,6 +635,12 @@ export component ConfigPane inherits Rectangle {
                         cutout-painting(on) => { root.cutout-painting(on); }
                         cutout-subject(index) => { root.cutout-subject(index); }
                         cutout-clear => { root.cutout-clear(); }
+                        apply-animation(in-idx, out-idx, in-dur, out-dur) => {
+                            Editor.clip-animation-apply(in-idx, out-idx, in-dur, out-dur);
+                        }
+                        clear-animation => {
+                            Editor.clip-animation-clear();
+                        }
                     }
 
                     if !root.is-image && !root.is-shape: SpeedPanel {
@@ -674,6 +681,12 @@ export component ConfigPane inherits Rectangle {
                     commit => { root.clip-commit(); }
                     import-font => { root.import-font(); }
                     set-default => { root.text-style-default(); }
+                    apply-animation(in-idx, out-idx, in-dur, out-dur) => {
+                        Editor.clip-animation-apply(in-idx, out-idx, in-dur, out-dur);
+                    }
+                    clear-animation => {
+                        Editor.clip-animation-clear();
+                    }
                 }
 
                 // Audio: the level and fades, then the voice and room chain

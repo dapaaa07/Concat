@@ -40,6 +40,7 @@ use concat_host::{
 use concat_media::{Pyramid, jpeg};
 use concat_project::Command;
 use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
+use concat_project::model::ranges::{MAX_SCALE, MIN_SCALE};
 use concat_project::model::{
     self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
 };
@@ -754,6 +755,7 @@ pub struct Studio {
     /// Envelopes, keyed by the things they are computed from. A move
     /// changes none of them, and a publish happens on every frame of one.
     waves: RefCell<HashMap<String, SharedString>>,
+    pub animation_presets: HashMap<String, (i32, i32, f32, f32)>,
 
     // ── the view ──
     /// The timeline's view: scroll, zoom, tool, and what the lanes know
@@ -2088,6 +2090,7 @@ impl Studio {
             proxied: HashSet::new(),
             window_pending: HashSet::new(),
             waves: RefCell::new(HashMap::new()),
+            animation_presets: HashMap::new(),
             lanes: crate::panes::timeline::TimelinePane::default(),
             selection: Vec::new(),
             playhead: 0.0,
@@ -8844,6 +8847,1280 @@ impl Studio {
         }
     }
 
+    pub fn apply_clip_animation(
+        &mut self,
+        in_index: i32,
+        out_index: i32,
+        in_duration: f32,
+        out_duration: f32,
+    ) {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+            return;
+        };
+        let clip_id = clip.id.clone();
+        let clip_duration = clip.duration.max(0.1);
+
+        if in_index <= 0 && out_index <= 0 {
+            self.clear_clip_animation();
+            return;
+        }
+
+        let resting_scale = clip
+            .value_at(model::KeyProperty::Scale, 0.5)
+            .clamp(MIN_SCALE, MAX_SCALE);
+        let resting_x = clip.value_at(model::KeyProperty::OffsetX, 0.5);
+        let resting_y = clip.value_at(model::KeyProperty::OffsetY, 0.5);
+        let resting_rotation = clip.value_at(model::KeyProperty::Rotation, 0.5);
+        let resting_opacity = clip
+            .value_at(model::KeyProperty::Opacity, 0.5)
+            .clamp(0.0, 1.0);
+
+        let in_dur = (in_duration as f64).min(clip_duration * 0.48).max(0.05);
+        let out_dur = (out_duration as f64).min(clip_duration * 0.48).max(0.05);
+
+        let t_in = (in_dur / clip_duration).clamp(0.02, 0.49);
+        let t_out_start = (1.0 - (out_dur / clip_duration)).clamp(0.51, 0.98);
+
+        let mut commands = Vec::new();
+
+        for &prop in &[
+            model::KeyProperty::Scale,
+            model::KeyProperty::OffsetX,
+            model::KeyProperty::OffsetY,
+            model::KeyProperty::Rotation,
+            model::KeyProperty::Opacity,
+        ] {
+            if clip.is_keyed(prop) {
+                commands.push(Command::ClearClipKeys {
+                    clip_id: clip_id.clone(),
+                    property: prop,
+                });
+            }
+        }
+
+        let mut add_key = |prop: model::KeyProperty, at: f64, val: f64, ease: model::KeyEase| {
+            commands.push(Command::SetClipKey {
+                clip_id: clip_id.clone(),
+                property: prop,
+                at,
+                value: val,
+                ease,
+            });
+        };
+
+        match in_index {
+            1 => {
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            2 => {
+                add_key(model::KeyProperty::Scale, 0.0, 0.05, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in,
+                    resting_scale,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            3 => {
+                add_key(model::KeyProperty::Scale, 0.0, 0.05, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in * 0.72,
+                    (resting_scale * 1.18).min(MAX_SCALE),
+                    model::KeyEase::IN_OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in,
+                    resting_scale,
+                    model::KeyEase::OUT,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.5,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            4 => {
+                add_key(
+                    model::KeyProperty::Scale,
+                    0.0,
+                    (resting_scale * 0.55).max(0.05),
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in,
+                    resting_scale,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            5 => {
+                add_key(
+                    model::KeyProperty::Scale,
+                    0.0,
+                    (resting_scale * 2.8).min(MAX_SCALE),
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in * 0.75,
+                    resting_scale * 0.95,
+                    model::KeyEase::IN_OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in,
+                    resting_scale,
+                    model::KeyEase::OUT,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.5,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            6 => {
+                add_key(
+                    model::KeyProperty::OffsetX,
+                    0.0,
+                    resting_x - 1.0,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::OffsetX,
+                    t_in,
+                    resting_x,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.6,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            7 => {
+                add_key(
+                    model::KeyProperty::OffsetX,
+                    0.0,
+                    resting_x + 1.0,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::OffsetX,
+                    t_in,
+                    resting_x,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.6,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            8 => {
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    0.0,
+                    resting_y + 1.0,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    t_in,
+                    resting_y,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.6,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            9 => {
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    0.0,
+                    resting_y - 1.0,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    t_in,
+                    resting_y,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.6,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            10 => {
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    0.0,
+                    resting_y - 1.0,
+                    model::KeyEase::IN,
+                );
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    t_in * 0.65,
+                    resting_y,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    t_in * 0.82,
+                    resting_y - 0.08,
+                    model::KeyEase::IN,
+                );
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    t_in,
+                    resting_y,
+                    model::KeyEase::OUT,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.4,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            11 => {
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    0.0,
+                    resting_y + 0.35,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    t_in * 0.72,
+                    resting_y - 0.04,
+                    model::KeyEase::IN_OUT,
+                );
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    t_in,
+                    resting_y,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    0.0,
+                    (resting_scale * 0.7).max(0.05),
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in * 0.72,
+                    (resting_scale * 1.06).min(MAX_SCALE),
+                    model::KeyEase::IN_OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in,
+                    resting_scale,
+                    model::KeyEase::OUT,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.5,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            12 => {
+                add_key(
+                    model::KeyProperty::Rotation,
+                    0.0,
+                    resting_rotation - 180.0,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Rotation,
+                    t_in,
+                    resting_rotation,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    0.0,
+                    (resting_scale * 0.1).max(0.05),
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in,
+                    resting_scale,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.6,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            13 => {
+                add_key(
+                    model::KeyProperty::Rotation,
+                    0.0,
+                    resting_rotation + 180.0,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Rotation,
+                    t_in,
+                    resting_rotation,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    0.0,
+                    (resting_scale * 0.1).max(0.05),
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in,
+                    resting_scale,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.6,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            14 => {
+                add_key(
+                    model::KeyProperty::Rotation,
+                    0.0,
+                    resting_rotation - 360.0,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Rotation,
+                    t_in,
+                    resting_rotation,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Scale, 0.0, 0.05, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in,
+                    resting_scale,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.6,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            15 => {
+                add_key(
+                    model::KeyProperty::OffsetX,
+                    0.0,
+                    resting_x - 0.8,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::OffsetX,
+                    t_in,
+                    resting_x,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    0.0,
+                    resting_y - 0.8,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    t_in,
+                    resting_y,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.6,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            16 => {
+                add_key(
+                    model::KeyProperty::OffsetX,
+                    0.0,
+                    resting_x + 0.8,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::OffsetX,
+                    t_in,
+                    resting_x,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    0.0,
+                    resting_y + 0.8,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    t_in,
+                    resting_y,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.6,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            17 => {
+                add_key(
+                    model::KeyProperty::Scale,
+                    0.0,
+                    (resting_scale * 1.14).min(MAX_SCALE),
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in,
+                    resting_scale,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            18 => {
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    0.0,
+                    resting_y + 0.18,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::OffsetY,
+                    t_in,
+                    resting_y,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    0.0,
+                    (resting_scale * 0.94).max(0.05),
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in,
+                    resting_scale,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            19 => {
+                add_key(
+                    model::KeyProperty::Rotation,
+                    0.0,
+                    resting_rotation - 15.0,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Rotation,
+                    t_in * 0.65,
+                    resting_rotation + 6.0,
+                    model::KeyEase::IN_OUT,
+                );
+                add_key(
+                    model::KeyProperty::Rotation,
+                    t_in,
+                    resting_rotation,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    0.0,
+                    (resting_scale * 0.6).max(0.05),
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in * 0.65,
+                    (resting_scale * 1.05).min(MAX_SCALE),
+                    model::KeyEase::IN_OUT,
+                );
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in,
+                    resting_scale,
+                    model::KeyEase::OUT,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.5,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            20 => {
+                add_key(
+                    model::KeyProperty::Rotation,
+                    0.0,
+                    resting_rotation + 90.0,
+                    model::KeyEase::OUT,
+                );
+                add_key(
+                    model::KeyProperty::Rotation,
+                    t_in,
+                    resting_rotation,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Scale, 0.0, 0.05, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Scale,
+                    t_in,
+                    resting_scale,
+                    model::KeyEase::LINEAR,
+                );
+                add_key(model::KeyProperty::Opacity, 0.0, 0.0, model::KeyEase::OUT);
+                add_key(
+                    model::KeyProperty::Opacity,
+                    t_in * 0.5,
+                    resting_opacity,
+                    model::KeyEase::LINEAR,
+                );
+            }
+            _ => {}
+        }
+
+        if out_index > 0 {
+            if in_index > 0 && t_out_start > t_in {
+                match in_index {
+                    1 => add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::LINEAR,
+                    ),
+                    2 | 3 | 4 | 5 => {
+                        add_key(
+                            model::KeyProperty::Scale,
+                            t_out_start,
+                            resting_scale,
+                            model::KeyEase::LINEAR,
+                        );
+                        add_key(
+                            model::KeyProperty::Opacity,
+                            t_out_start,
+                            resting_opacity,
+                            model::KeyEase::LINEAR,
+                        );
+                    }
+                    6 | 7 => {
+                        add_key(
+                            model::KeyProperty::OffsetX,
+                            t_out_start,
+                            resting_x,
+                            model::KeyEase::LINEAR,
+                        );
+                        add_key(
+                            model::KeyProperty::Opacity,
+                            t_out_start,
+                            resting_opacity,
+                            model::KeyEase::LINEAR,
+                        );
+                    }
+                    8 | 9 | 10 => {
+                        add_key(
+                            model::KeyProperty::OffsetY,
+                            t_out_start,
+                            resting_y,
+                            model::KeyEase::LINEAR,
+                        );
+                        add_key(
+                            model::KeyProperty::Opacity,
+                            t_out_start,
+                            resting_opacity,
+                            model::KeyEase::LINEAR,
+                        );
+                    }
+                    11 => {
+                        add_key(
+                            model::KeyProperty::OffsetY,
+                            t_out_start,
+                            resting_y,
+                            model::KeyEase::LINEAR,
+                        );
+                        add_key(
+                            model::KeyProperty::Scale,
+                            t_out_start,
+                            resting_scale,
+                            model::KeyEase::LINEAR,
+                        );
+                        add_key(
+                            model::KeyProperty::Opacity,
+                            t_out_start,
+                            resting_opacity,
+                            model::KeyEase::LINEAR,
+                        );
+                    }
+                    12 | 13 | 14 => {
+                        add_key(
+                            model::KeyProperty::Rotation,
+                            t_out_start,
+                            resting_rotation,
+                            model::KeyEase::LINEAR,
+                        );
+                        add_key(
+                            model::KeyProperty::Scale,
+                            t_out_start,
+                            resting_scale,
+                            model::KeyEase::LINEAR,
+                        );
+                        add_key(
+                            model::KeyProperty::Opacity,
+                            t_out_start,
+                            resting_opacity,
+                            model::KeyEase::LINEAR,
+                        );
+                    }
+                    15 | 16 => {
+                        add_key(
+                            model::KeyProperty::OffsetX,
+                            t_out_start,
+                            resting_x,
+                            model::KeyEase::LINEAR,
+                        );
+                        add_key(
+                            model::KeyProperty::OffsetY,
+                            t_out_start,
+                            resting_y,
+                            model::KeyEase::LINEAR,
+                        );
+                        add_key(
+                            model::KeyProperty::Opacity,
+                            t_out_start,
+                            resting_opacity,
+                            model::KeyEase::LINEAR,
+                        );
+                    }
+                    17 | 18 | 19 | 20 => {
+                        add_key(
+                            model::KeyProperty::Rotation,
+                            t_out_start,
+                            resting_rotation,
+                            model::KeyEase::LINEAR,
+                        );
+                        add_key(
+                            model::KeyProperty::Scale,
+                            t_out_start,
+                            resting_scale,
+                            model::KeyEase::LINEAR,
+                        );
+                        add_key(
+                            model::KeyProperty::OffsetY,
+                            t_out_start,
+                            resting_y,
+                            model::KeyEase::LINEAR,
+                        );
+                        add_key(
+                            model::KeyProperty::Opacity,
+                            t_out_start,
+                            resting_opacity,
+                            model::KeyEase::LINEAR,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+
+            match out_index {
+                1 => {
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                2 => {
+                    add_key(
+                        model::KeyProperty::Scale,
+                        t_out_start,
+                        resting_scale,
+                        model::KeyEase::IN,
+                    );
+                    add_key(model::KeyProperty::Scale, 1.0, 0.05, model::KeyEase::LINEAR);
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                3 => {
+                    add_key(
+                        model::KeyProperty::Scale,
+                        t_out_start,
+                        resting_scale,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Scale,
+                        1.0,
+                        (resting_scale * 2.8).min(MAX_SCALE),
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                4 => {
+                    add_key(
+                        model::KeyProperty::OffsetX,
+                        t_out_start,
+                        resting_x,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::OffsetX,
+                        1.0,
+                        resting_x - 1.0,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                5 => {
+                    add_key(
+                        model::KeyProperty::OffsetX,
+                        t_out_start,
+                        resting_x,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::OffsetX,
+                        1.0,
+                        resting_x + 1.0,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                6 => {
+                    add_key(
+                        model::KeyProperty::OffsetY,
+                        t_out_start,
+                        resting_y,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::OffsetY,
+                        1.0,
+                        resting_y - 1.0,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                7 => {
+                    add_key(
+                        model::KeyProperty::OffsetY,
+                        t_out_start,
+                        resting_y,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::OffsetY,
+                        1.0,
+                        resting_y + 1.0,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                8 => {
+                    add_key(
+                        model::KeyProperty::OffsetY,
+                        t_out_start,
+                        resting_y,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::OffsetY,
+                        1.0,
+                        resting_y + 1.2,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Rotation,
+                        t_out_start,
+                        resting_rotation,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Rotation,
+                        1.0,
+                        resting_rotation + 15.0,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                9 => {
+                    let mid_t = t_out_start + (1.0 - t_out_start) * 0.32;
+                    add_key(
+                        model::KeyProperty::Scale,
+                        t_out_start,
+                        resting_scale,
+                        model::KeyEase::OUT,
+                    );
+                    add_key(
+                        model::KeyProperty::Scale,
+                        mid_t,
+                        (resting_scale * 1.12).min(MAX_SCALE),
+                        model::KeyEase::IN,
+                    );
+                    add_key(model::KeyProperty::Scale, 1.0, 0.05, model::KeyEase::LINEAR);
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        mid_t,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                10 => {
+                    add_key(
+                        model::KeyProperty::Rotation,
+                        t_out_start,
+                        resting_rotation,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Rotation,
+                        1.0,
+                        resting_rotation + 180.0,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Scale,
+                        t_out_start,
+                        resting_scale,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Scale,
+                        1.0,
+                        (resting_scale * 0.1).max(0.05),
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                11 => {
+                    add_key(
+                        model::KeyProperty::Rotation,
+                        t_out_start,
+                        resting_rotation,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Rotation,
+                        1.0,
+                        resting_rotation - 180.0,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Scale,
+                        t_out_start,
+                        resting_scale,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Scale,
+                        1.0,
+                        (resting_scale * 0.1).max(0.05),
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                12 => {
+                    add_key(
+                        model::KeyProperty::Rotation,
+                        t_out_start,
+                        resting_rotation,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Rotation,
+                        1.0,
+                        resting_rotation + 360.0,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Scale,
+                        t_out_start,
+                        resting_scale,
+                        model::KeyEase::IN,
+                    );
+                    add_key(model::KeyProperty::Scale, 1.0, 0.05, model::KeyEase::LINEAR);
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                13 => {
+                    add_key(
+                        model::KeyProperty::OffsetX,
+                        t_out_start,
+                        resting_x,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::OffsetX,
+                        1.0,
+                        resting_x - 0.8,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::OffsetY,
+                        t_out_start,
+                        resting_y,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::OffsetY,
+                        1.0,
+                        resting_y + 0.8,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                14 => {
+                    add_key(
+                        model::KeyProperty::OffsetX,
+                        t_out_start,
+                        resting_x,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::OffsetX,
+                        1.0,
+                        resting_x + 0.8,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::OffsetY,
+                        t_out_start,
+                        resting_y,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::OffsetY,
+                        1.0,
+                        resting_y - 0.8,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                15 => {
+                    add_key(
+                        model::KeyProperty::Scale,
+                        t_out_start,
+                        resting_scale,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Scale,
+                        1.0,
+                        (resting_scale * 0.88).max(0.05),
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                16 => {
+                    add_key(
+                        model::KeyProperty::Rotation,
+                        t_out_start,
+                        resting_rotation,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Rotation,
+                        1.0,
+                        resting_rotation - 90.0,
+                        model::KeyEase::LINEAR,
+                    );
+                    add_key(
+                        model::KeyProperty::Scale,
+                        t_out_start,
+                        resting_scale,
+                        model::KeyEase::IN,
+                    );
+                    add_key(model::KeyProperty::Scale, 1.0, 0.05, model::KeyEase::LINEAR);
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        t_out_start,
+                        resting_opacity,
+                        model::KeyEase::IN,
+                    );
+                    add_key(
+                        model::KeyProperty::Opacity,
+                        1.0,
+                        0.0,
+                        model::KeyEase::LINEAR,
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        self.animation_presets
+            .insert(clip_id, (in_index, out_index, in_duration, out_duration));
+        if !commands.is_empty() {
+            self.apply(Command::Batch { commands });
+        }
+    }
+
+    pub fn clear_clip_animation(&mut self) {
+        let (clip_id, props_to_clear) = match self.sole_selection().and_then(|id| self.clip(&id)) {
+            Some(clip) => {
+                let id = clip.id.clone();
+                let props: Vec<_> = [
+                    model::KeyProperty::Scale,
+                    model::KeyProperty::OffsetX,
+                    model::KeyProperty::OffsetY,
+                    model::KeyProperty::Rotation,
+                    model::KeyProperty::Opacity,
+                ]
+                .into_iter()
+                .filter(|&prop| clip.is_keyed(prop))
+                .collect();
+                (id, props)
+            }
+            None => return,
+        };
+        self.animation_presets.remove(&clip_id);
+        let commands: Vec<_> = props_to_clear
+            .into_iter()
+            .map(|property| Command::ClearClipKeys {
+                clip_id: clip_id.clone(),
+                property,
+            })
+            .collect();
+        if !commands.is_empty() {
+            self.apply(Command::Batch { commands });
+        }
+    }
+
     /// Puts a key on the field at the playhead, or takes off the one there.
     ///
     /// The value a new key gets is whatever the property is worth at that
@@ -8978,6 +10255,11 @@ impl Studio {
                 .get(&Self::analysis_key(&clip.media_id, cutout.subject))
                 .copied()
         });
+        let (anim_in, anim_out, anim_in_dur, anim_out_dur) = self
+            .animation_presets
+            .get(&clip.id)
+            .copied()
+            .unwrap_or((0, 0, 0.5, 0.5));
         SelectedClipData {
             present: true,
             batch: targets.len() as i32,
@@ -9005,6 +10287,10 @@ impl Studio {
                 .as_ref()
                 .map(|transition| transition.duration as f32)
                 .unwrap_or(0.5),
+            animation_in: anim_in,
+            animation_out: anim_out,
+            animation_in_duration: anim_in_dur,
+            animation_out_duration: anim_out_dur,
             scale: shown(clip, model::KeyProperty::Scale, at) as f32,
             offset_x: shown(clip, model::KeyProperty::OffsetX, at) as f32,
             offset_y: shown(clip, model::KeyProperty::OffsetY, at) as f32,

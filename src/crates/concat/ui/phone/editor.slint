@@ -1037,6 +1037,12 @@ export component PhoneEditor inherits Rectangle {
             cutout-painting(on) => { Editor.cutout-painting(on); }
             cutout-subject(index) => { Editor.cutout-subject(index); }
             cutout-clear => { Editor.cutout-clear(); }
+            apply-animation(in-idx, out-idx, in-dur, out-dur) => {
+                Editor.clip-animation-apply(in-idx, out-idx, in-dur, out-dur);
+            }
+            clear-animation => {
+                Editor.clip-animation-clear();
+            }
         }
 
         if root.sheet == "clip-speed": SpeedPanel {
@@ -1102,6 +1108,12 @@ export component PhoneEditor inherits Rectangle {
             commit => { Editor.clip-commit(); }
             import-font => { Editor.import-font(); }
             set-default => { Editor.text-style-default(); }
+            apply-animation(in-idx, out-idx, in-dur, out-dur) => {
+                Editor.clip-animation-apply(in-idx, out-idx, in-dur, out-dur);
+            }
+            clear-animation => {
+                Editor.clip-animation-clear();
+            }
         }
 
         if root.sheet == "clip-layer": FilterPanel {
