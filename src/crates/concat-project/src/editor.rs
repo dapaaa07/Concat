@@ -115,11 +115,10 @@ impl Editor {
     /// the open can say which; the next save makes it so.
     pub fn drop_retired_fields(&mut self) -> RetiredFields {
         use std::sync::Arc;
-        const ANIMATIONS: [&str; 4] = [
-            "animationIn",
-            "animationOut",
+        // 0.2.4's combo animations were retired when In, Out and Loop slots
+        // became first-class document properties.
+        const ANIMATIONS: [&str; 1] = [
             "animationCombo",
-            "animationLoop",
         ];
         let mut found = RetiredFields::default();
         for timeline in &mut self.project.timelines {

@@ -71,6 +71,15 @@ pub(super) fn apply(
             if let Some(transition) = patch.transition_in {
                 applied |= assign(&mut clip.transition_in, transition);
             }
+            if let Some(anim_in) = patch.animation_in {
+                applied |= assign(&mut clip.animation_in, anim_in);
+            }
+            if let Some(anim_out) = patch.animation_out {
+                applied |= assign(&mut clip.animation_out, anim_out);
+            }
+            if let Some(anim_loop) = patch.animation_loop {
+                applied |= assign(&mut clip.animation_loop, anim_loop);
+            }
             if let Some(text) = patch.text {
                 // The name follows the words, like addTextClip snapshots it.
                 if let Some(style) = &text {

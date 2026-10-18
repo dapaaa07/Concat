@@ -836,6 +836,31 @@ pub struct Transition {
     pub duration: f64,
 }
 
+/// An animation preset applied to a clip slot (In, Out, or Loop).
+///
+/// Durations are in seconds rather than fractions of the clip, so trimming
+/// a clip does not stretch or compress its animation.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipAnimation {
+    /// Which preset from the catalogue or built-ins, e.g. "fade-in", "zoom-in".
+    #[serde(alias = "name")]
+    pub preset: String,
+    /// Seconds the animation runs.
+    #[serde(default = "unity")]
+    pub duration: f64,
+}
+
+impl ClipAnimation {
+    /// A new slot animation with given preset name and duration in seconds.
+    pub fn new(preset: impl Into<String>, duration: f64) -> Self {
+        ClipAnimation {
+            preset: preset.into(),
+            duration: duration.max(0.0),
+        }
+    }
+}
+
 /// How a title's lines sit within their block, and which point of the block
 /// the clip's position pins: a centred title is placed by its middle, a
 /// left-aligned one by its block's left edge and a right-aligned one by its
@@ -1350,6 +1375,18 @@ pub struct Clip {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub transition_in: Option<Transition>,
+    /// The In animation preset and duration, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub animation_in: Option<ClipAnimation>,
+    /// The Out animation preset and duration, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub animation_out: Option<ClipAnimation>,
+    /// The Loop animation preset and duration, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub animation_loop: Option<ClipAnimation>,
     /// The clip's Enhance: the media it was cut from and the enhanced copy
     /// of it, and which of the two it shows. Absent until Enhance has made
     /// a copy; switching it off shows the original again without running
@@ -1458,6 +1495,9 @@ impl Clip {
             muted: None,
             detached_from: None,
             transition_in: None,
+            animation_in: None,
+            animation_out: None,
+            animation_loop: None,
             enhanced: None,
             text: None,
             shape: None,
@@ -1509,6 +1549,15 @@ impl Clip {
         self.cutout = self.cutout.take().map(Cutout::tidy);
         if let Some(transition) = self.transition_in.as_mut() {
             transition.duration = finite(transition.duration, 1.0).max(MIN_TRANSITION);
+        }
+        if let Some(anim) = self.animation_in.as_mut() {
+            anim.duration = finite(anim.duration, 1.0).max(0.01);
+        }
+        if let Some(anim) = self.animation_out.as_mut() {
+            anim.duration = finite(anim.duration, 1.0).max(0.01);
+        }
+        if let Some(anim) = self.animation_loop.as_mut() {
+            anim.duration = finite(anim.duration, 1.0).max(0.01);
         }
         self.keys
             .retain(|key| (0.0..=1.0).contains(&key.at) && key.value.is_finite());

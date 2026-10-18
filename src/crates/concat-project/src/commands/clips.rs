@@ -326,6 +326,7 @@ pub(super) fn apply(
                 // head and the way out to the tail, so neither piece plays
                 // an entrance or an exit the whole did not have at the cut.
                 tail.transition_in = None;
+                tail.animation_in = None;
                 tail.fade_in = 0.0;
                 tail.rewindow_keys(whole, offset, whole);
                 created = Some(tail.id.clone());
@@ -333,6 +334,7 @@ pub(super) fn apply(
                 head.duration = offset;
                 head.source_start = head_source;
                 head.fade_out = 0.0;
+                head.animation_out = None;
                 head.rewindow_keys(whole, 0.0, offset);
                 timeline.clips.insert(index + 1, Arc::new(tail));
             }
@@ -525,12 +527,14 @@ pub(super) fn apply(
             tail.duration = clip_duration - offset;
             tail.source_start = tail_source;
             tail.transition_in = None;
+            tail.animation_in = None;
             tail.fade_in = 0.0;
             tail.rewindow_keys(clip_duration, offset, clip_duration);
             let head = timeline.clip_at_mut(index);
             head.duration = offset;
             head.source_start = head_source;
             head.fade_out = 0.0;
+            head.animation_out = None;
             head.rewindow_keys(clip_duration, 0.0, offset);
             timeline.clips.insert(index + 1, Arc::new(tail));
 
@@ -563,6 +567,9 @@ pub(super) fn apply(
             frozen.muted = None;
             frozen.detached_from = None;
             frozen.transition_in = None;
+            frozen.animation_in = None;
+            frozen.animation_out = None;
+            frozen.animation_loop = None;
             frozen.text = None;
             timeline.clips.push(Arc::new(frozen));
 

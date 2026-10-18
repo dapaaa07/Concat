@@ -13,7 +13,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AppliedFilter, AudioTrack, Clip, ClipKind, ColorRange, ColorSpace, Crop, CustomFont, Cutout,
+    AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKind, ColorRange, ColorSpace, Crop, CustomFont, Cutout,
     CutoutMode, Enhanced, KeyEase, KeyProperty, MediaItem, MediaKind, MediaOrigin, Project,
     ShapeStyle, SpeedPoint, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
 };
@@ -133,6 +133,27 @@ pub struct ClipPatch {
         skip_serializing_if = "Option::is_none"
     )]
     pub transition_in: Option<Option<Transition>>,
+    /// The In animation: absent leaves it alone, null clears it, a value replaces it.
+    #[serde(
+        default,
+        with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub animation_in: Option<Option<ClipAnimation>>,
+    /// The Out animation: absent leaves it alone, null clears it, a value replaces it.
+    #[serde(
+        default,
+        with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub animation_out: Option<Option<ClipAnimation>>,
+    /// The Loop animation: absent leaves it alone, null clears it, a value replaces it.
+    #[serde(
+        default,
+        with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub animation_loop: Option<Option<ClipAnimation>>,
     /// The title styling, same three-way wire semantics as `transition_in`.
     /// Setting a style also renames the clip after its first line.
     #[serde(
@@ -991,6 +1012,21 @@ impl Command {
                         .iter()
                         .flatten()
                         .any(|tr| bad([tr.duration]))
+                    || patch
+                        .animation_in
+                        .iter()
+                        .flatten()
+                        .any(|anim| bad([anim.duration]))
+                    || patch
+                        .animation_out
+                        .iter()
+                        .flatten()
+                        .any(|anim| bad([anim.duration]))
+                    || patch
+                        .animation_loop
+                        .iter()
+                        .flatten()
+                        .any(|anim| bad([anim.duration]))
                     || patch.text.iter().flatten().any(|style| {
                         bad([
                             style.font_size,

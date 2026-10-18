@@ -2840,11 +2840,28 @@ mod tests {
 
         // ClipPatch double-options: absent leaves alone, null clears.
         let patch: crate::commands::ClipPatch =
-            serde_json::from_value(json!({ "transitionIn": null })).expect("parses");
+            serde_json::from_value(json!({
+                "transitionIn": null,
+                "animationIn": null,
+                "animationOut": { "preset": "zoom-out", "duration": 0.5 },
+                "animationLoop": null,
+            })).expect("parses");
         assert_eq!(patch.transition_in, Some(None));
+        assert_eq!(patch.animation_in, Some(None));
+        assert_eq!(
+            patch.animation_out,
+            Some(Some(crate::model::ClipAnimation {
+                preset: "zoom-out".into(),
+                duration: 0.5,
+            }))
+        );
+        assert_eq!(patch.animation_loop, Some(None));
         let untouched: crate::commands::ClipPatch =
             serde_json::from_value(json!({})).expect("parses");
         assert_eq!(untouched.transition_in, None);
+        assert_eq!(untouched.animation_in, None);
+        assert_eq!(untouched.animation_out, None);
+        assert_eq!(untouched.animation_loop, None);
     }
 
     /// A media item's colour range is set, saved, cleared, and undone
@@ -4379,9 +4396,9 @@ mod tests {
             .expect("clips");
         assert!(clips.len() >= 3, "{clips:?}");
         clips[0]["reverse"] = serde_json::json!(true);
-        clips[1]["animationIn"] = serde_json::json!({"name": "bounce", "duration": 0.5});
+        clips[1]["animationCombo"] = serde_json::json!({"name": "bounce", "duration": 0.5});
         clips[2]["reverse"] = serde_json::json!(false);
-        clips[2]["animationLoop"] = serde_json::Value::Null;
+        clips[2]["animationCombo"] = serde_json::Value::Null;
         let names: Vec<String> = clips
             .iter()
             .map(|clip| clip["name"].as_str().unwrap_or_default().to_owned())
@@ -4392,7 +4409,7 @@ mod tests {
         assert_eq!(retired.reversed, vec![names[0].clone()]);
         assert_eq!(retired.animated, vec![names[1].clone()]);
         for clip in &reopened.project().active().clips {
-            for key in ["reverse", "animationIn", "animationLoop"] {
+            for key in ["reverse", "animationCombo"] {
                 assert!(!clip.extra.contains_key(key), "{key} on {}", clip.name);
             }
         }
@@ -4529,5 +4546,147 @@ mod tests {
             })
             .expect("no-op");
         assert!(!off.applied);
+    }
+
+    /// Clip animation slots (In, Out, Loop) are set via ClipPatch, saved into the
+    /// project document, restored on load, and tracked in the undo history.
+    #[test]
+    fn clip_animation_slots_are_undoable_edits_that_round_trip() {
+        use crate::model::{Clip, ClipAnimation};
+        let (mut editor, _, clip_id) = fixture();
+        fn clip(editor: &Editor, clip_id: &str) -> Clip {
+            editor
+                .project()
+                .active()
+                .clip(clip_id)
+                .cloned()
+                .expect("clip exists")
+        }
+        assert_eq!(clip(&editor, &clip_id).animation_in, None);
+        assert_eq!(clip(&editor, &clip_id).animation_out, None);
+        assert_eq!(clip(&editor, &clip_id).animation_loop, None);
+
+        // Setting animation slots records an edit.
+        let outcome = editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    animation_in: Some(Some(ClipAnimation::new("fade-in", 0.5))),
+                    animation_out: Some(Some(ClipAnimation::new("zoom-out", 0.8))),
+                    animation_loop: Some(Some(ClipAnimation::new("pulse", 2.0))),
+                    ..Default::default()
+                },
+            })
+            .expect("applies animation slots");
+        assert!(outcome.applied);
+        assert_eq!(
+            clip(&editor, &clip_id).animation_in,
+            Some(ClipAnimation::new("fade-in", 0.5))
+        );
+        assert_eq!(
+            clip(&editor, &clip_id).animation_out,
+            Some(ClipAnimation::new("zoom-out", 0.8))
+        );
+        assert_eq!(
+            clip(&editor, &clip_id).animation_loop,
+            Some(ClipAnimation::new("pulse", 2.0))
+        );
+
+        // Setting the exact same values is a no-op (no phantom undo entry).
+        let no_op = editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    animation_in: Some(Some(ClipAnimation::new("fade-in", 0.5))),
+                    ..Default::default()
+                },
+            })
+            .expect("no-op check");
+        assert!(!no_op.applied);
+
+        // Document round-trip preserves animation slots.
+        let doc = editor.to_document(&settings());
+        let reloaded = Editor::from_document(&doc).expect("loads document");
+        let reloaded_clip = reloaded
+            .project()
+            .active()
+            .clip(&clip_id)
+            .expect("reloaded clip exists");
+        assert_eq!(
+            reloaded_clip.animation_in,
+            Some(ClipAnimation::new("fade-in", 0.5))
+        );
+        assert_eq!(
+            reloaded_clip.animation_out,
+            Some(ClipAnimation::new("zoom-out", 0.8))
+        );
+        assert_eq!(
+            reloaded_clip.animation_loop,
+            Some(ClipAnimation::new("pulse", 2.0))
+        );
+
+        // Clearing slots via Some(None) works and is undoable.
+        let clear = editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    animation_in: Some(None),
+                    ..Default::default()
+                },
+            })
+            .expect("clears in animation");
+        assert!(clear.applied);
+        assert_eq!(clip(&editor, &clip_id).animation_in, None);
+        assert!(clip(&editor, &clip_id).animation_out.is_some());
+
+        // Undo restores the cleared slot.
+        editor.undo();
+        assert_eq!(
+            clip(&editor, &clip_id).animation_in,
+            Some(ClipAnimation::new("fade-in", 0.5))
+        );
+
+        // Splitting a clip leaves In on the head and Out on the tail.
+        editor
+            .apply(Command::SplitClips {
+                clip_ids: vec![clip_id.clone()],
+                time: 5.0,
+            })
+            .expect("splits clip");
+        let active = editor.project().active();
+        let head = &active.clips[0];
+        let tail = &active.clips[1];
+        assert_eq!(
+            head.animation_in,
+            Some(ClipAnimation::new("fade-in", 0.5)),
+            "head keeps In"
+        );
+        assert_eq!(head.animation_out, None, "head clears Out");
+        assert_eq!(tail.animation_in, None, "tail clears In");
+        assert_eq!(
+            tail.animation_out,
+            Some(ClipAnimation::new("zoom-out", 0.8)),
+            "tail keeps Out"
+        );
+    }
+
+    #[test]
+    fn nan_in_animation_is_refused() {
+        use crate::model::ClipAnimation;
+        let (mut editor, _, clip_id) = fixture();
+        let bad = Command::UpdateClip {
+            clip_id,
+            patch: ClipPatch {
+                animation_in: Some(Some(ClipAnimation {
+                    preset: "fade-in".to_owned(),
+                    duration: f64::NAN,
+                })),
+                ..Default::default()
+            },
+        };
+        assert_eq!(
+            editor.apply(bad).expect_err("refuses NaN"),
+            crate::CommandError::NotANumber
+        );
     }
 }
