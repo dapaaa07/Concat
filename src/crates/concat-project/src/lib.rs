@@ -35,7 +35,7 @@ pub use editor::{Editor, RetiredFields};
 pub use model::Project;
 pub use presets::{
     AnimationModifier, AnimationSlotKind, PresetMeta, builtin_presets, evaluate_clip_animations,
-    evaluate_preset,
+    evaluate_preset, evaluate_slot_animations,
 };
 
 #[cfg(test)]

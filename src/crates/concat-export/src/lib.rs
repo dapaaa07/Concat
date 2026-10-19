@@ -130,6 +130,15 @@ pub struct ExportClip {
     /// Empty for none.
     #[serde(default)]
     pub animation: Vec<ExportKey>,
+    /// In animation preset and duration, or absent for none.
+    #[serde(default)]
+    pub animation_in: Option<concat_project::model::ClipAnimation>,
+    /// Out animation preset and duration, or absent for none.
+    #[serde(default)]
+    pub animation_out: Option<concat_project::model::ClipAnimation>,
+    /// Loop animation preset and duration, or absent for none.
+    #[serde(default)]
+    pub animation_loop: Option<concat_project::model::ClipAnimation>,
     /// Mirrored left to right.
     #[serde(default)]
     pub flip_h: bool,
@@ -253,6 +262,9 @@ impl ExportClip {
             preserve_pitch: true,
             speed_curve: Vec::new(),
             animation: Vec::new(),
+            animation_in: None,
+            animation_out: None,
+            animation_loop: None,
             flip_h: false,
             flip_v: false,
             blend: String::new(),
@@ -906,6 +918,9 @@ fn last_frame_held(clip: &ExportClip, start: f64, length: f64, frame: f64) -> Ex
     hold.transition = None;
     hold.video_fade_in = 0.0;
     hold.transition_shapes.clear();
+    hold.animation_in = None;
+    hold.animation_out = None;
+    hold.animation_loop = None;
     // Keys are absolute and a keyed property's constant is the neutral
     // value, so the tail of each ride becomes the hold's constant.
     let tails: Vec<(String, f64)> = ["scale", "offsetX", "offsetY", "rotation", "opacity"]
@@ -1276,6 +1291,8 @@ fn filled(
     effects: Vec<ShaderPass>,
     geometry: Option<&resolve::PlannedGeometry>,
     transitions: Vec<Transition>,
+    animation: Option<&resolve::PlannedAnimation>,
+    time: Rational,
 ) -> PlannedLayer {
     let mut filled = PlannedLayer {
         source: Some(frame),
@@ -1288,6 +1305,18 @@ fn filled(
         filled.crop = geometry.crop;
         filled.flip_h = geometry.flip_h;
         filled.flip_v = geometry.flip_v;
+    }
+    if let Some(anim) = animation {
+        let seconds = (time - layer.clip_start).as_f64();
+        let modifier = concat_project::presets::evaluate_slot_animations(
+            anim.duration,
+            anim.in_slot.as_ref(),
+            anim.out_slot.as_ref(),
+            anim.loop_slot.as_ref(),
+            seconds,
+        );
+        filled.transform = modifier.apply_to_transform(filled.transform);
+        filled.opacity = modifier.apply_to_opacity(filled.opacity);
     }
     filled
 }
@@ -1465,6 +1494,7 @@ fn render_picture(
         tracks,
         treatments,
         transitions,
+        animations,
         geometry,
         shapes,
         ranges,
@@ -1565,6 +1595,8 @@ fn render_picture(
                     passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
                     geometry.get(&layer.clip),
                     shapes_at(&shapes, layer, time, rate),
+                    animations.get(&layer.clip),
+                    time,
                 ));
                 continue;
             }
@@ -1632,6 +1664,8 @@ fn render_picture(
                     passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
                     geometry.get(&layer.clip),
                     shapes_at(&shapes, layer, time, rate),
+                    animations.get(&layer.clip),
+                    time,
                 ));
             }
         }
@@ -2070,6 +2104,7 @@ pub fn preview_sources_of(
         tracks,
         treatments,
         transitions,
+        animations,
         geometry,
         shapes,
         ranges: _,
@@ -2117,6 +2152,8 @@ pub fn preview_sources_of(
                     passes_at(chains, reveal_maps, timeline, layer.clip, time),
                     geometry.get(&layer.clip),
                     shapes_at(shapes, layer, time, rate),
+                    animations.get(&layer.clip),
+                    time,
                 ))
             }
             Err(error) => failures.push(format!("{}: {error}", layer.media.display())),
@@ -3400,5 +3437,66 @@ mod tests {
         resolve_transitions(&mut clips, FrameRate::THIRTY);
         assert_eq!(clips[1].start, 2.0);
         assert!(clips[1].transition_shapes.is_empty());
+    }
+
+    #[test]
+    fn animation_slots_are_planned_and_evaluated_with_export_parity() {
+        use concat_project::model::ClipAnimation;
+        let mut test_clip = clip("video", 0, 0.0, 10.0, 0.0);
+        test_clip.animation = vec![
+            ExportKey {
+                property: "scale".to_owned(),
+                at: 0.0,
+                value: 1.0,
+                ease: [0.0, 0.0, 1.0, 1.0],
+            },
+            ExportKey {
+                property: "scale".to_owned(),
+                at: 1.0,
+                value: 2.0,
+                ease: [0.0, 0.0, 1.0, 1.0],
+            },
+        ];
+        test_clip.animation_in = Some(ClipAnimation::new("fade-in", 1.0));
+        test_clip.animation_out = Some(ClipAnimation::new("fade-out", 1.0));
+
+        let plan = preview_plan(&[test_clip], 1920, 1080, 30, 1, ColorSpace::Sdr);
+        assert_eq!(plan.built.animations.len(), 1);
+
+        let time_zero = Rational::ZERO;
+        let frame_plan = plan_frame(&plan.built.timeline, time_zero);
+        assert_eq!(frame_plan.layers.len(), 1);
+        let layer = &frame_plan.layers[0];
+        let placeholder = Arc::new(Frame::black(1920, 1080));
+        let filled_zero = filled(
+            layer,
+            placeholder.clone(),
+            0,
+            Vec::new(),
+            None,
+            Vec::new(),
+            plan.built.animations.get(&layer.clip),
+            time_zero,
+        );
+        // At start: user keyframe scale is 1.0; fade-in modifier opacity is 0.0.
+        assert_eq!(filled_zero.transform.scale, 1.0);
+        assert_eq!(filled_zero.opacity, 0.0);
+
+        let time_1s = Rational::new(1, 1);
+        let frame_plan_1s = plan_frame(&plan.built.timeline, time_1s);
+        let layer_1s = &frame_plan_1s.layers[0];
+        let filled_1s = filled(
+            layer_1s,
+            placeholder,
+            0,
+            Vec::new(),
+            None,
+            Vec::new(),
+            plan.built.animations.get(&layer_1s.clip),
+            time_1s,
+        );
+        // At 1.0 second: user keyframe scale is 1.1; fade-in has finished (opacity 1.0).
+        assert!((filled_1s.transform.scale - 1.1).abs() < 1e-3);
+        assert_eq!(filled_1s.opacity, 1.0);
     }
 }

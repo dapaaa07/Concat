@@ -15,7 +15,7 @@ use std::f64::consts::PI;
 
 use concat_core::animate::Ease;
 
-use crate::model::Clip;
+use crate::model::{Clip, ClipAnimation};
 
 /// The three animation slots a clip can have.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -276,20 +276,21 @@ fn evaluate_loop_preset(preset: &str, p: f64) -> AnimationModifier {
     }
 }
 
-/// Evaluates all active animation slots on a clip at a given local playback time (in seconds).
-///
-/// If an animation slot is absent, it contributes the identity modifier.
-/// When In and Out animations are both present and their durations sum to more
-/// than the clip's duration, each is clamped to half of the clip's duration.
-pub fn evaluate_clip_animations(clip: &Clip, local_seconds: f64) -> AnimationModifier {
-    let duration = clip.duration.max(0.01);
+/// Evaluates active animation slots at a given local playback time in seconds.
+pub fn evaluate_slot_animations(
+    clip_duration: f64,
+    animation_in: Option<&ClipAnimation>,
+    animation_out: Option<&ClipAnimation>,
+    animation_loop: Option<&ClipAnimation>,
+    local_seconds: f64,
+) -> AnimationModifier {
+    let duration = clip_duration.max(0.01);
     let t = local_seconds.clamp(0.0, duration);
 
     let max_half = duration / 2.0;
-    let has_both = clip.animation_in.is_some() && clip.animation_out.is_some();
+    let has_both = animation_in.is_some() && animation_out.is_some();
 
-    // 1. In animation
-    let in_modifier = if let Some(slot) = &clip.animation_in {
+    let in_modifier = if let Some(slot) = animation_in {
         let dur = if has_both {
             slot.duration.min(max_half).max(0.01)
         } else {
@@ -305,8 +306,7 @@ pub fn evaluate_clip_animations(clip: &Clip, local_seconds: f64) -> AnimationMod
         AnimationModifier::IDENTITY
     };
 
-    // 2. Out animation
-    let out_modifier = if let Some(slot) = &clip.animation_out {
+    let out_modifier = if let Some(slot) = animation_out {
         let dur = if has_both {
             slot.duration.min(max_half).max(0.01)
         } else {
@@ -327,8 +327,7 @@ pub fn evaluate_clip_animations(clip: &Clip, local_seconds: f64) -> AnimationMod
         AnimationModifier::IDENTITY
     };
 
-    // 3. Loop animation
-    let loop_modifier = if let Some(slot) = &clip.animation_loop {
+    let loop_modifier = if let Some(slot) = animation_loop {
         let cycle_dur = slot.duration.max(0.05);
         let p = (t % cycle_dur) / cycle_dur;
         evaluate_preset(AnimationSlotKind::Loop, &slot.preset, p)
@@ -337,6 +336,17 @@ pub fn evaluate_clip_animations(clip: &Clip, local_seconds: f64) -> AnimationMod
     };
 
     in_modifier.combine(out_modifier).combine(loop_modifier)
+}
+
+/// Evaluates all active animation slots on a clip at a given local playback time in seconds.
+pub fn evaluate_clip_animations(clip: &Clip, local_seconds: f64) -> AnimationModifier {
+    evaluate_slot_animations(
+        clip.duration,
+        clip.animation_in.as_ref(),
+        clip.animation_out.as_ref(),
+        clip.animation_loop.as_ref(),
+        local_seconds,
+    )
 }
 
 #[cfg(test)]

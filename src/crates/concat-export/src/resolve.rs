@@ -113,8 +113,19 @@ pub(crate) struct BuiltTimeline {
     pub(crate) treatments: Vec<Treatment>,
     /// The packaged transitions over cuts, resolved before the timeline.
     pub(crate) transitions: Vec<TransitionSpan>,
+    /// Slot animations (In, Out, Loop) evaluated at render time over user keyframes.
+    pub(crate) animations: HashMap<ClipId, PlannedAnimation>,
     /// The clips whose background a mask takes away.
     pub(crate) cutouts: HashMap<ClipId, CutoutJob>,
+}
+
+/// Active animation slots on a clip to evaluate at render time.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PlannedAnimation {
+    pub(crate) in_slot: Option<concat_project::model::ClipAnimation>,
+    pub(crate) out_slot: Option<concat_project::model::ClipAnimation>,
+    pub(crate) loop_slot: Option<concat_project::model::ClipAnimation>,
+    pub(crate) duration: f64,
 }
 
 /// A packaged transition over a cut. The incoming clip has been overlapped
@@ -212,6 +223,7 @@ pub(crate) fn build_timeline(
     let mut chains: HashMap<ClipId, Vec<AppliedFilter>> = HashMap::new();
     let mut reveal_maps: HashMap<ClipId, Arc<RevealMap>> = HashMap::new();
     let mut cutouts: HashMap<ClipId, CutoutJob> = HashMap::new();
+    let mut animations: HashMap<ClipId, PlannedAnimation> = HashMap::new();
     let mut highlight: Option<ClipId> = None;
 
     let lanes = visible.iter().map(|clip| clip.track).max().unwrap_or(0) + 1;
@@ -303,6 +315,20 @@ pub(crate) fn build_timeline(
             if clip.highlighted {
                 highlight = Some(id);
             }
+            if clip.animation_in.is_some()
+                || clip.animation_out.is_some()
+                || clip.animation_loop.is_some()
+            {
+                animations.insert(
+                    id,
+                    PlannedAnimation {
+                        in_slot: clip.animation_in.clone(),
+                        out_slot: clip.animation_out.clone(),
+                        loop_slot: clip.animation_loop.clone(),
+                        duration: clip.duration,
+                    },
+                );
+            }
         }
     }
 
@@ -313,6 +339,7 @@ pub(crate) fn build_timeline(
         tracks: tracks_of,
         treatments,
         transitions,
+        animations,
         geometry,
         shapes,
         ranges,

@@ -67,6 +67,9 @@ pub fn flatten_timeline_in(
                     effects: clip.video_effects.clone(),
                     opacity: clip.opacity,
                     has_audio: Some(false),
+                    animation_in: clip.animation_in.clone(),
+                    animation_out: clip.animation_out.clone(),
+                    animation_loop: clip.animation_loop.clone(),
                     ..ExportClip::blank(ClipKind::Layer, clip.start, clip.duration, index)
                 });
             }
@@ -102,6 +105,9 @@ pub fn flatten_timeline_in(
                     .map(|point| (point.at, point.speed))
                     .collect(),
                 animation: export_keys(clip),
+                animation_in: clip.animation_in.clone(),
+                animation_out: clip.animation_out.clone(),
+                animation_loop: clip.animation_loop.clone(),
                 flip_h: clip.flip_h,
                 flip_v: clip.flip_v,
                 blend: clip.blend.clone(),
@@ -339,5 +345,26 @@ mod tests {
         // by asking for a timeline that does not exist.
         assert!(flatten_timeline(editor.project(), None).is_empty());
         assert!(flatten_timeline(editor.project(), Some("nope")).len() <= 1);
+    }
+
+    #[test]
+    fn animation_slots_flatten_into_the_export_clip() {
+        use concat_project::model::ClipAnimation;
+        let (mut editor, _, clip_id) = project_with_clip();
+        editor
+            .apply(Command::UpdateClip {
+                clip_id,
+                patch: ClipPatch {
+                    animation_in: Some(Some(ClipAnimation::new("fade-in", 1.0))),
+                    animation_out: Some(Some(ClipAnimation::new("fade-out", 0.5))),
+                    animation_loop: Some(Some(ClipAnimation::new("pulse", 2.0))),
+                    ..Default::default()
+                },
+            })
+            .expect("sets animation slots");
+        let flat = flatten_timeline(editor.project(), None);
+        assert_eq!(flat[0].animation_in, Some(ClipAnimation::new("fade-in", 1.0)));
+        assert_eq!(flat[0].animation_out, Some(ClipAnimation::new("fade-out", 0.5)));
+        assert_eq!(flat[0].animation_loop, Some(ClipAnimation::new("pulse", 2.0)));
     }
 }
