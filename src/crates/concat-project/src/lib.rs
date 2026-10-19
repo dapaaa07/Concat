@@ -26,12 +26,17 @@ pub mod doc;
 pub mod editor;
 pub mod model;
 pub mod placement;
+pub mod presets;
 pub mod speed;
 
 pub use commands::{Command, CommandError, Outcome, consolidation_clips, why_not_merge};
 pub use doc::{DOCUMENT_VERSION, DocumentSettings, document_version, from_document, to_document};
 pub use editor::{Editor, RetiredFields};
 pub use model::Project;
+pub use presets::{
+    AnimationModifier, AnimationSlotKind, PresetMeta, builtin_presets, evaluate_clip_animations,
+    evaluate_preset,
+};
 
 #[cfg(test)]
 mod tests {
