@@ -69,6 +69,23 @@ impl AnimationModifier {
             opacity: self.opacity * other.opacity,
         }
     }
+
+    /// Applies this modifier to a base transform: multiplies scale, adds offsets and rotation.
+    pub fn apply_to_transform(&self, base: concat_core::timeline::Transform) -> concat_core::timeline::Transform {
+        concat_core::timeline::Transform {
+            scale: (base.scale * self.scale).max(0.001),
+            offset_x: base.offset_x + self.offset_x,
+            offset_y: base.offset_y + self.offset_y,
+            rotation: base.rotation + self.rotation,
+            stretch_x: base.stretch_x,
+            stretch_y: base.stretch_y,
+        }
+    }
+
+    /// Applies this modifier to a base opacity in 0.0..=1.0: multiplies opacity factor.
+    pub fn apply_to_opacity(&self, base: f32) -> f32 {
+        (f64::from(base) * self.opacity).clamp(0.0, 1.0) as f32
+    }
 }
 
 /// Metadata for a built-in animation preset.

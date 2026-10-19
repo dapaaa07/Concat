@@ -4694,4 +4694,108 @@ mod tests {
             crate::CommandError::NotANumber
         );
     }
+
+    /// User keyframes and animation presets coexist non-destructively:
+    /// Setting or clearing an animation slot does not mutate `clip.keys`,
+    /// `clip.value_at()` yields the pure user keyframe curve, and
+    /// `clip.animated_value_at()` overlays the animation slot modifiers.
+    /// In addition, slot duration is in seconds, so trimming does not stretch animation timing.
+    #[test]
+    fn user_keyframes_and_animation_slots_coexist_non_destructively() {
+        use crate::model::{ClipAnimation, KeyEase, KeyProperty};
+        let (mut editor, _, clip_id) = fixture();
+
+        // 1. User sets keyframes on Scale: 1.0 at start, 2.0 at end.
+        editor
+            .apply(Command::SetClipKey {
+                clip_id: clip_id.clone(),
+                property: KeyProperty::Scale,
+                at: 0.0,
+                value: 1.0,
+                ease: KeyEase::LINEAR,
+            })
+            .expect("sets key 1");
+        editor
+            .apply(Command::SetClipKey {
+                clip_id: clip_id.clone(),
+                property: KeyProperty::Scale,
+                at: 1.0,
+                value: 2.0,
+                ease: KeyEase::LINEAR,
+            })
+            .expect("sets key 2");
+
+        let clip = editor.project().active().clip(&clip_id).cloned().expect("exists");
+        assert_eq!(clip.keys_on(KeyProperty::Scale).count(), 2);
+        assert!(!clip.has_animations());
+        assert_eq!(clip.value_at(KeyProperty::Scale, 0.0), 1.0);
+        assert_eq!(clip.animated_value_at(KeyProperty::Scale, 0.0), 1.0);
+
+        // 2. Add an In animation (zoom-in, 1.0 second duration).
+        // Clip duration is 10.0 seconds.
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    animation_in: Some(Some(ClipAnimation::new("zoom-in", 1.0))),
+                    ..Default::default()
+                },
+            })
+            .expect("sets in animation");
+
+        let clip = editor.project().active().clip(&clip_id).cloned().expect("exists");
+        // User keyframes are completely untouched!
+        assert_eq!(clip.keys_on(KeyProperty::Scale).count(), 2);
+        assert!(clip.has_animations());
+
+        // Base user keyframe value at start is still 1.0.
+        assert_eq!(clip.value_at(KeyProperty::Scale, 0.0), 1.0);
+
+        // But animated_value_at at t=0.0 combines the base (1.0) with zoom-in modifier (scale starts at 0.001).
+        let start_val = clip.animated_value_at(KeyProperty::Scale, 0.0);
+        assert!((start_val - 0.001).abs() < 1e-4);
+
+        // At 1.0 second (at = 0.1 of a 10s clip), In-animation has finished (modifier scale = 1.0).
+        // User keyframe at at=0.1 is 1.0 + 0.1 * (2.0 - 1.0) = 1.1.
+        let at_1s = clip.animated_value_at(KeyProperty::Scale, 0.1);
+        assert!((at_1s - 1.1).abs() < 1e-3);
+
+        // 3. Trimming the clip does not stretch the animation duration:
+        // Duration is defined in seconds. At 0.5 seconds local time:
+        // In 10s clip, 0.5s is at = 0.05.
+        let mid_anim_val = clip.animated_value_at(KeyProperty::Scale, 0.05);
+
+        // Trim clip end from 10s to 5s.
+        editor
+            .apply(trim(&clip_id, TrimEdge::End, -5.0, false))
+            .expect("trims clip");
+        let trimmed_clip = editor.project().active().clip(&clip_id).cloned().expect("exists");
+        assert_eq!(trimmed_clip.duration, 5.0);
+
+        // In 5s clip, 0.5s is at = 0.10.
+        let trimmed_mid_anim_val = trimmed_clip.animated_value_at(KeyProperty::Scale, 0.10);
+        // The animation modifier is evaluated at 0.5 seconds in both, multiplying the respective user keyframe base:
+        let base_1 = clip.value_at(KeyProperty::Scale, 0.05);
+        let base_2 = trimmed_clip.value_at(KeyProperty::Scale, 0.10);
+        let factor_1 = mid_anim_val / base_1;
+        let factor_2 = trimmed_mid_anim_val / base_2;
+        assert!((factor_1 - factor_2).abs() < 1e-4, "animation speed is invariant under clip trim");
+
+        // 4. Clearing the animation preset leaves user keyframes completely intact.
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    animation_in: Some(None),
+                    ..Default::default()
+                },
+            })
+            .expect("clears in animation");
+
+        let clip = editor.project().active().clip(&clip_id).cloned().expect("exists");
+        assert!(!clip.has_animations());
+        assert_eq!(clip.keys_on(KeyProperty::Scale).count(), 2);
+        assert_eq!(clip.value_at(KeyProperty::Scale, 0.0), 1.0);
+        assert_eq!(clip.animated_value_at(KeyProperty::Scale, 0.0), 1.0);
+    }
 }

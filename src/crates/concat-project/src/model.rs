@@ -1656,6 +1656,33 @@ impl Clip {
         self.track_on(property).value_at(at, constant)
     }
 
+    /// True when any animation slot (In, Out, or Loop) is set on this clip.
+    pub fn has_animations(&self) -> bool {
+        self.animation_in.is_some() || self.animation_out.is_some() || self.animation_loop.is_some()
+    }
+
+    /// What a property is worth at `at` (a fraction `0.0..=1.0` of clip length),
+    /// combining user keyframes with the active slot animations (In, Out, Loop).
+    ///
+    /// The user's keyframes define the base ride/constant; the animation slots
+    /// apply relative factors and deltas on top evaluated in seconds.
+    pub fn animated_value_at(&self, property: KeyProperty, at: f64) -> f64 {
+        let base = self.value_at(property, at);
+        if !self.has_animations() {
+            return base;
+        }
+        let seconds = at * self.duration;
+        let modifier = crate::presets::evaluate_clip_animations(self, seconds);
+        match property {
+            KeyProperty::Scale => (base * modifier.scale).max(0.001),
+            KeyProperty::OffsetX => base + modifier.offset_x,
+            KeyProperty::OffsetY => base + modifier.offset_y,
+            KeyProperty::Rotation => base + modifier.rotation,
+            KeyProperty::Opacity => (base * modifier.opacity).clamp(0.0, 1.0),
+            KeyProperty::Volume => base,
+        }
+    }
+
     /// The nearest key strictly before `at`, and the nearest strictly after.
     /// What the panel's two chevrons move the playhead to; `None` on a side
     /// is that chevron greyed out.
